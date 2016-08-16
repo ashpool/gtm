@@ -1,5 +1,9 @@
 #include <OneWire.h>
 #include <PID_v1.h>
+#include <Thread.h>
+#include <ThreadController.h>
+#include <TimerOne.h>
+
 
 // OneWire DS18S20, DS18B20, DS1822 Temperature Example
 //
@@ -35,20 +39,53 @@
 #define SENSOR_PIN 10
 #define DELAY 1000
 
+class SensorThread: public Thread {
+  public:
+    float value;
+    int pin;
+
+  void run(){
+    value = getTemp();
+    runned();
+  }
+};
+
 OneWire ds(SENSOR_PIN);  // on pin 10 (a 4.7K resistor is necessary)
 
 //Define Variables we'll be connecting to
 double Setpoint, Input, Output;
 //Specify the links and initial tuning parameters
-double Kp=2.0, Ki=5.0, Kd=1.0;
+double Kp=70.0, Ki=0.6, Kd=0.6;
 PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
 int WindowSize = 100; 
-uint32_t PID_interval = 10000;
+uint32_t PID_interval = 30000;
 unsigned long windowStartTime;
+
+SensorThread tempSensor = SensorThread();
+
+// Instantiate a new ThreadController
+ThreadController controller = ThreadController();
+
+// This is the callback for the Timer
+void timerCallback(){
+  controller.run();
+}
 
 void setup(void) {  
   Serial.begin(9600);
   pinMode(RELAY_PIN, OUTPUT);
+
+   // Configures Thread
+  tempSensor.pin = SENSOR_PIN;
+  tempSensor.setInterval(10000);
+
+  // Add the Threads to our ThreadController
+  controller.add(&tempSensor);
+
+  Timer1.initialize(10000000);
+  Timer1.attachInterrupt(timerCallback);
+  Timer1.start();
+  
   windowStartTime = millis();
   Setpoint = 28.0;
   myPID.SetOutputLimits(0, WindowSize); //tell the PID to range between 0 and the full window size
@@ -98,21 +135,21 @@ float convertTemp(byte data[12], int type_s) {
   return (float) raw / 16.0;
 }
 
-void loop(void) {
+float getTemp() {
   byte i;
   byte present = 0;
   byte data[12];
   byte addr[8];
-  float celsius;
-  double ratio;
+  unsigned long startTime;
   
   ds.reset_search();
   if ( !ds.search(addr)) {
     Serial.println("No more addresses.");
     Serial.println();
     ds.reset_search();
-    delay(3000);
-    return;
+    startTime = millis();
+    while(millis() - startTime < 3000);
+    return -1000;
   }
 
   Serial.print("ROM =");
@@ -123,20 +160,23 @@ void loop(void) {
 
   if (OneWire::crc8(addr, 7) != addr[7]) {
       Serial.println("CRC is not valid!");
-      return;
+      return -1000;
   }
 
   // the first ROM byte indicates which chip
   int type_s = getChipType(addr[0]);
+  
 
   if(!ds.reset()) {
     Serial.println("Failed to reset");
-    return;
+    return -1000;
   }
   ds.select(addr);
   ds.write(0x44, 1);        // start conversion, with parasite power on at the end
-
-  delay(DELAY);     // maybe 750ms is enough, maybe not
+  
+  startTime = millis();
+  while(millis() - startTime < 1000);
+  // maybe 750ms is enough, maybe not
   // we might do a ds.depower() here, but the reset will take care of it.
 
   present = ds.reset();
@@ -158,7 +198,16 @@ void loop(void) {
   Serial.print(OneWire::crc8(data, 8), HEX);
   Serial.println();
 
-  Input = convertTemp(data, type_s);
+  return convertTemp(data, type_s);
+}
+
+void loop(void) {
+  double ratio;
+  float temp = tempSensor.value;
+  if(temp == -1000){
+    return;
+  }
+  Input = temp;
   myPID.Compute();
   windowStartTime = millis();
   Serial.println();
@@ -173,11 +222,9 @@ void loop(void) {
   Serial.print("Runtime: ");
   Serial.println(PID_interval * ratio);
 
-  if( PID_interval * ratio > 500) {
-    Serial.println("LOW");
-    digitalWrite(RELAY_PIN, LOW);
-    while(millis() - windowStartTime < PID_interval * ratio);
-  }
+  Serial.println("LOW");
+  digitalWrite(RELAY_PIN, LOW);
+  while(millis() - windowStartTime < PID_interval * ratio);
   
   Serial.println("HIGH");
   digitalWrite(RELAY_PIN, HIGH);

@@ -1,10 +1,3 @@
-#include <OneWire.h>
-#include <PID_v1.h>
-#include <Thread.h>
-#include <ThreadController.h>
-#include <TimerOne.h>
-
-
 /*
  OneWire DS18S20, DS18B20, DS1822 Temperature Example
 
@@ -21,6 +14,12 @@
  Connect GND on Arduino to the Common Terminal (middle terminal) on Relay Module.
 */
 
+#include <OneWire.h>
+#include <PID_v1.h>
+#include <Thread.h>
+#include <ThreadController.h>
+#include <TimerOne.h>
+
 #define RELAY_PIN 8   // Connect Digital Pin 8 on Arduino to ? on Relay Module
 #define SENSOR_PIN 10
 #define DELAY 1000
@@ -29,60 +28,92 @@
 #define ERROR_CRC_IS_NOT_VALID -3000
 #define ERROR_FAILED_TO_RESET -4000
 
+const unsigned long WINDOW_SIZE = 100;
+const unsigned long PID_INTERVAL = 60000;
+
+unsigned long _windowStartTime;
+double _setpoint, _input, _output;
+double _kp = 70.0, _ki = 0.6, _kd = 0.6; // Initial tuning parameters
+PID _pid(&_input, &_output, &_setpoint, _kp, _ki, _kd, DIRECT);
+OneWire _ow(SENSOR_PIN);  // on pin 10 (a 4.7K resistor is necessary)
+
 class Logger {
+
   public:
-    int DEBUG_LVL = 0;
-    int INFO_LVL = 1;
-    int WARN_LVL = 2;
-    int ERROR_LVL = 3;
-    
-    void setLevel(int value) {
-      level = value;
+    void errorF(const char* msg, float value){
+      Serial.print(msg);
+      Serial.println(value);
     }
-    
-    void ERROR(String message) {
-      if(level <= ERROR_LVL) {
-        print("ERROR", message);
-      }
+  
+    void info(const char* msg) {
+      Serial.println(msg);
     }
 
-    void ERROR(String message, int code) {
-      ERROR(message + " " + String(code));
+    void debug(const char* msg) {
+      Serial.println(msg);
     }
-    
-    void WARN(String message) {
-      if(level <= WARN_LVL) {
-        print("WARN", message);
-      }
+  
+    void infoF(const char* msg, float value){
+      Serial.print(msg);
+      Serial.println(value);
     }
 
-    void INFO(String message) {
-      if(level <= INFO_LVL) {
-        print("INFO", message);
-      }
+    void infoD(const char* msg, double value){
+      Serial.print(msg);
+      Serial.println(value);
     }
     
-    void DEBUG(String message) {
-      if(level <= DEBUG_LVL) {
-        print("DEBUG", message);
-      }
+    void infoI(const char* msg, unsigned int value){
+      Serial.print(msg);
+      Serial.println(value);
     }
-    
-    void DEBUG(String message, float value) {
-      DEBUG(message + " " + String(value));
-    }
-    
-  private:
-    int level = DEBUG_LVL;
-    
-    void print(String message) {
-      Serial.println(message);
-    }
-    
-    void print(String level, String message) {
-      Serial.println(level + ": " + message);
+
+    void infoL(const char* msg, unsigned int value){
+      Serial.print(msg);
+      Serial.println(value);
     }
 };
+
+Logger Log = Logger();
+
+float getTemp() {
+  byte i;
+  byte present = 0;
+  byte data[12];
+  byte addr[8];
+  unsigned long startTime;
+
+  _ow.reset_search();
+  if ( !_ow.search(addr)) {
+    _ow.reset_search();
+    startTime = millis();
+    while (millis() - startTime < 3000);
+    return ERROR_NO_MORE_ADDRESSES;
+  }
+  if (OneWire::crc8(addr, 7) != addr[7]) {
+    return ERROR_CRC_IS_NOT_VALID;
+  }
+  // the first ROM byte indicates which chip
+  int type_s = getChipType(addr[0]);
+  if (!_ow.reset()) {
+    return ERROR_FAILED_TO_RESET;
+  }
+  _ow.select(addr);
+  _ow.write(0x44, 1);        // start conversion, with parasite power on at the end
+  startTime = millis();
+  while (millis() - startTime < 1000); // maybe 750ms is enough, maybe not
+  // we might do a _ow.depower() here, but the reset will take care of it.
+  present = _ow.reset();
+  if (!present) {
+    Log.info("Failed to reset");
+  }
+  _ow.select(addr);
+  _ow.write(0xBE);         // Read Scratchpad
+  for ( i = 0; i < 9; i++) {           // we need 9 bytes
+    data[i] = _ow.read();
+  }
+  return convertTemp(data, type_s);
+}
 
 class SensorThread: public Thread {
   public:
@@ -95,54 +126,45 @@ class SensorThread: public Thread {
     }
 };
 
-Logger Log = Logger();
-//Log.setLevel(1);
-int WindowSize = 100;
-uint32_t PID_interval = 60000;
-unsigned long windowStartTime;
-double Setpoint, Input, Output;
-double Kp = 70.0, Ki = 0.6, Kd = 0.6; // Initial tuning parameters
-PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
-OneWire ds(SENSOR_PIN);  // on pin 10 (a 4.7K resistor is necessary)
-SensorThread tempSensor = SensorThread();
-ThreadController controller = ThreadController();
+ThreadController _controller = ThreadController();
 
 void timerCallback() {
-  controller.run();
+  _controller.run();
 }
+
+SensorThread tempSensor = SensorThread();
 
 void setup(void) {
   Serial.begin(9600);
   pinMode(RELAY_PIN, OUTPUT);
   tempSensor.pin = SENSOR_PIN;
   tempSensor.setInterval(10000);
-  controller.add(&tempSensor);
+  _controller.add(&tempSensor);
   Timer1.initialize(10000000);
   Timer1.attachInterrupt(timerCallback);
   Timer1.start();
-  windowStartTime = millis();
-  Setpoint = 28.0;
-  myPID.SetOutputLimits(0, WindowSize); //tell the PID to range between 0 and the full window size
-  myPID.SetMode(AUTOMATIC); //turn the PID on
-  Log.INFO("Setup complete");
+  _windowStartTime = millis();
+  _setpoint = 28.0;
+  _pid.SetOutputLimits(0, WINDOW_SIZE); //tell the PID to range between 0 and the full window size
+  _pid.SetMode(AUTOMATIC); //turn the PID on
 }
 
 int getChipType(int addr) {
   switch (addr) {
     case 0x10:
-      Log.INFO("  Chip = DS18S20");  // or old DS1820
+      Log.debug("Chip = DS18S20");  // or old DS1820
       return 1;
       break;
     case 0x28:
-      Log.INFO("  Chip = DS18B20");
+      Log.debug("Chip = DS18B20");
       return 0;
       break;
     case 0x22:
-      Log.INFO("  Chip = DS1822");
+      Log.debug("Chip = DS1822");
       return 0;
       break;
     default:
-      Log.INFO("Device is not a DS18x20 family device.");
+      Log.debug("Device is not a DS18x20 family device.");
       return -1;
   }
 }
@@ -177,72 +199,25 @@ float convertTemp(byte data[12], int type_s) {
   return (float) raw / 16.0;
 }
 
-float getTemp() {
-  byte i;
-  byte present = 0;
-  byte data[12];
-  byte addr[8];
-  unsigned long startTime;
-
-  ds.reset_search();
-  if ( !ds.search(addr)) {
-    ds.reset_search();
-    startTime = millis();
-    while (millis() - startTime < 3000);
-    return ERROR_NO_MORE_ADDRESSES;
-  }
-
-  if (OneWire::crc8(addr, 7) != addr[7]) {
-    return ERROR_CRC_IS_NOT_VALID;
-  }
-
-  // the first ROM byte indicates which chip
-  int type_s = getChipType(addr[0]);
-
-  if (!ds.reset()) {
-    return ERROR_FAILED_TO_RESET;
-  }
-  ds.select(addr);
-  ds.write(0x44, 1);        // start conversion, with parasite power on at the end
-
-  startTime = millis();
-  while (millis() - startTime < 1000); // maybe 750ms is enough, maybe not
-  // we might do a ds.depower() here, but the reset will take care of it.
-
-  present = ds.reset();
-  if (!present) {
-    Log.INFO("Failed to reset");
-  }
-  ds.select(addr);
-  ds.write(0xBE);         // Read Scratchpad
-
-  for ( i = 0; i < 9; i++) {           // we need 9 bytes
-    data[i] = ds.read();
-  }
-
-  return convertTemp(data, type_s);
-}
-
 void loop(void) {
-  double ratio;
-  float temp = tempSensor.value;
-  if (temp <= ERROR_RESPONSE) {
-    Log.ERROR("Code:", temp);
+  float tempOrErrow = tempSensor.value;
+  if (tempOrErrow <= ERROR_RESPONSE) {
+    Log.errorF("Code: ", tempOrErrow);
     return;
   }
-  Input = temp;
-  myPID.Compute();
-  windowStartTime = millis();
-  ratio = Output / WindowSize;
-  unsigned int runtime = PID_interval * ratio;
-  Log.DEBUG("Input:", Input); 
-  Log.DEBUG("Output:", Output); 
+  _windowStartTime = millis();
+  _input = tempOrErrow;
+  _pid.Compute();
+  const float ratio = _output / WINDOW_SIZE;
+  const unsigned long runtime = PID_INTERVAL * ratio; 
+  Log.infoD("Input: ", _input); 
+  Log.infoD("Output: ", _output); 
 
-  Log.DEBUG("HEAT ON:", runtime); 
+  Log.infoL("Heat ON: ", runtime); 
   digitalWrite(RELAY_PIN, LOW);
-  while (millis() - windowStartTime < runtime);
-
-  Log.DEBUG("HEAT OFF:", PID_interval - runtime); 
+  while (millis() - _windowStartTime < runtime);
+  
+  Log.infoL("Heat OFF ", PID_INTERVAL - runtime); 
   digitalWrite(RELAY_PIN, HIGH);
-  while (millis() - windowStartTime < PID_interval - runtime);
+  while (millis() - _windowStartTime < PID_INTERVAL);
 }

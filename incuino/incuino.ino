@@ -1,4 +1,5 @@
-/*
+/* 
+ # Temperature
  OneWire DS18S20, DS18B20, DS1822 Temperature Example
 
  http://www.pjrc.com/teensy/td_libs_OneWire.html
@@ -6,8 +7,7 @@
  The DallasTemperature library can do all this work for you!
  http://milesburton.com/Dallas_Temperature_Control_Library
 
- The pid is designed to Output an analog value, but the relay can only be On/Off.
- It's essentially a really slow version of PWM.
+ # Relay
 
  Connect 5V on Arduino to VCC on Relay Module
  Connect GND on Arduino to GND on Relay Module

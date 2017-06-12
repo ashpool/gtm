@@ -1,5 +1,4 @@
-# GTM
-General Temperature Machine
+# General Temperature Machine
 
 When incubating eggs and brewing beer, and countless other applications, it's desirable to maintain a constant temperature. A naive (and in many cases fully workable solution) is to use a thermostat, a device that turns on a heatsource below a set temperature and turns it off when the temperature is above. Using this method will cause the temperature will vary, or oscillate, to some degree, due to inertia in the system. I wanted to achive a near constant temperature, so what I had to do was to apply the PID algorithm.
 
@@ -12,6 +11,3 @@ The hardware needed is a temperature sensor, a heat source (or a cooler - revers
 * [DS18S20](https://arduino-info.wikispaces.com/Brick-Temperature-DS18B20) temperature sensor.
 * [2 way relay module](https://arduino-info.wikispaces.com/RelayIsolation) (although 1 should work just fine).
 * An Arduino Uno as the controller.
-
-_I take no repsonsibility if you injure or kill yourself or others, or otherwise cause damage._
-

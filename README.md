@@ -8,7 +8,7 @@ When incubating eggs and brewing beer, and countless other applications, it's de
 
 The PID in this case is not designed to output an analog value, since the relay can only be on or off, instead it outputs how long the heat source should be on within a fixed interval. It's essentially a really slow version of pulse width modulation.
 
-The hardware needed is a temperature sensor, a heat source (or cooler - reverse the relay), and a controller. In my case I'm using:
+The hardware needed is a temperature sensor, a heat source (or a cooler - reverse the relay), and a controller. In my case I'm using:
 * [DS18S20](https://arduino-info.wikispaces.com/Brick-Temperature-DS18B20) temperature sensor.
 * [2 way relay module](https://arduino-info.wikispaces.com/RelayIsolation) (although 1 should work just fine).
 * An Arduino Uno as the controller.

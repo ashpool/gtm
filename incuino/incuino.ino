@@ -1,4 +1,7 @@
 /* 
+
+PID controller for controlling temperature by either using a heater or a cooler
+ 
  # Temperature
  OneWire DS18S20, DS18B20, DS1822 Temperature Example
 
@@ -15,10 +18,10 @@
 */
 
 #include <OneWire.h>
-#include <PID_v1.h>
-#include <Thread.h>
-#include <ThreadController.h>
-#include <TimerOne.h>
+#include <PID_v1.h> // https://github.com/br3ttb/Arduino-PID-Library
+#include <Thread.h> // https://github.com/ivanseidel/ArduinoThread
+#include <ThreadController.h> // https://github.com/ivanseidel/ArduinoThread
+#include <TimerOne.h> // https://github.com/PaulStoffregen/TimerOne
 #include <DallasTemperature.h>
 
 #define RELAY_PIN 8   // Connect Digital Pin 8 on Arduino to ? on Relay Module
@@ -29,6 +32,9 @@
 #define ERROR_CRC_IS_NOT_VALID -3000
 #define ERROR_FAILED_TO_RESET -4000
 
+const unsigned long COOLER = 1; 
+const unsigned long HEATER = 0; 
+const unsigned long TYPE = COOLER; 
 const unsigned long WINDOW_SIZE = 100;
 const unsigned long PID_INTERVAL = 60000;
 
@@ -134,11 +140,11 @@ void loop(void) {
   Log.infoD("Input: ", _input); 
   Log.infoD("Output: ", _output); 
 
-  Log.infoL("Heat ON: ", runtime); 
-  digitalWrite(RELAY_PIN, LOW);
+  Log.infoL("runtime ", runtime);
+  digitalWrite(RELAY_PIN, TYPE == HEATER ? LOW : HIGH); 
+  Log.infoL("PID_INTERVAL - runtime ", PID_INTERVAL - runtime); 
   while (millis() - _windowStartTime < runtime);
+  digitalWrite(RELAY_PIN, TYPE == HEATER ? HIGH : LOW);
   
-  Log.infoL("Heat OFF ", PID_INTERVAL - runtime); 
-  digitalWrite(RELAY_PIN, HIGH);
   while (millis() - _windowStartTime < PID_INTERVAL);
 }

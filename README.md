@@ -10,4 +10,4 @@ The PID in this case is not designed to output an analog value, since the relay 
 The hardware needed is a temperature sensor, a heat source (or a cooler - reverse the relay), and a controller. In my case I'm using:
 * [DS18S20](https://arduino-info.wikispaces.com/Brick-Temperature-DS18B20) temperature sensor.
 * [2 way relay module](https://arduino-info.wikispaces.com/RelayIsolation) (although 1 should work just fine).
-* An Arduino Uno as the controller.
+* An Arduino
